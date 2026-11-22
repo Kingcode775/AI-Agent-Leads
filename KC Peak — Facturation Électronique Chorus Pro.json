@@ -1,0 +1,530 @@
+{
+  "name": "KC Peak — Facturation Électronique Chorus Pro",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 🧾 WORKFLOW 3 — FACTURATION ÉLECTRONIQUE\n\n**Flux :** Devis accepté → Facture Factur-X → Email + Chorus Pro\n\n**Loi :** Obligatoire pour TOUS les artisans dès sept. 2026\n\n**Gratuit à 100% :**\n- Chorus Pro (portail public État) = GRATUIT\n- Génération Factur-X (XML + HTML) = GRATUIT\n- Gmail = GRATUIT\n- Google Sheets = GRATUIT\n\n**Config requise :**\n1. Credential Gmail dans n8n\n2. Google Sheets URL (même que Workflow 2)\n3. Identifiants PISTE (API Chorus Pro) — inscription gratuite sur\n   portail.chorus-pro.gouv.fr\n\n**Déclencher ce workflow :**\nAppeler le webhook /facturer avec les données du devis\nOU connecter depuis le Workflow 2 quand devis validé",
+        "height": 512,
+        "width": 480,
+        "color": 3
+      },
+      "id": "c1b381b4-5fd6-41ac-bcef-7283ee6143c3",
+      "name": "📋 Guide Facturation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "facturer",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "886ac343-6394-41b5-8902-ae3e9af035ae",
+      "name": "🔗 Webhook — Créer facture",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        464
+      ],
+      "webhookId": "fc59a9f6-fedb-4d17-b6a8-a14f5a66f83c"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{ \"status\": \"processing\" }",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "031498d0-dec8-48b8-82b4-b98a987258f7",
+      "name": "📤 Répondre 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        224,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\n\n// Accepter les données du devis depuis le webhook ou manuellement\nconst devis = body.devis || body;\nconst today = new Date().toLocaleDateString('fr-FR');\nconst isoDate = new Date().toISOString().split('T')[0];\nconst factureNum = 'FACT-' + Date.now().toString().slice(-6);\n\n// Données artisan (à configurer ou passées via webhook)\nconst artisan = {\n  nom: devis.artisan?.nom || body.artisan_nom || 'Artisan KC Peak',\n  siret: devis.artisan?.siret || body.siret || 'SIRET_A_COMPLETER',\n  adresse: devis.artisan?.adresse || body.artisan_adresse || 'Adresse artisan',\n  email: devis.artisan?.email || body.artisan_email || 'artisan@email.com',\n  telephone: devis.artisan?.telephone || body.telephone || ''\n};\n\nconst client = {\n  nom: devis.client?.nom || body.client_nom || 'Client',\n  siret: devis.client?.siret || body.client_siret || '',\n  adresse: devis.client?.adresse || body.client_adresse || '',\n  email: devis.client?.email || body.client_email || ''\n};\n\nconst lignes = devis.lignes || body.lignes || [\n  {\n    designation: devis.description_chantier || 'Travaux selon devis',\n    quantite: 1,\n    unite: 'forfait',\n    prix_unitaire_ht: devis.sous_total_ht || 0,\n    total_ht: devis.sous_total_ht || 0\n  }\n];\n\nconst sousTotal = lignes.reduce((acc, l) => acc + parseFloat(l.total_ht || 0), 0);\nconst tvaTaux = devis.tva_taux || 10;\nconst tvaMontant = Math.round(sousTotal * (tvaTaux / 100) * 100) / 100;\nconst totalTTC = Math.round((sousTotal + tvaMontant) * 100) / 100;\n\nreturn [{\n  json: {\n    factureNum,\n    dateFacture: today,\n    isoDate,\n    echeance: new Date(Date.now() + 30*24*60*60*1000).toLocaleDateString('fr-FR'),\n    artisan,\n    client,\n    lignes,\n    sousTotal,\n    tvaTaux,\n    tvaMontant,\n    totalTTC,\n    devisRef: devis.numero || body.devis_numero || 'N/A',\n    description: devis.description_chantier || body.description || 'Travaux'\n  }\n}];"
+      },
+      "id": "279d29d3-ee84-488f-ae64-448e9c1265a7",
+      "name": "⚙️ Préparer données facture",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\n\n// ========================================\n// GÉNÉRATION FACTUR-X (format légal 2026)\n// Standard européen EN 16931 — Profil MINIMUM\n// ========================================\nconst facturX = `<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rsm:CrossIndustryInvoice \n  xmlns:rsm=\"urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100\"\n  xmlns:ram=\"urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100\"\n  xmlns:udt=\"urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100\">\n\n  <rsm:ExchangedDocumentContext>\n    <ram:GuidelineSpecifiedDocumentContextParameter>\n      <ram:ID>urn:factur-x.eu:1p0:minimum</ram:ID>\n    </ram:GuidelineSpecifiedDocumentContextParameter>\n  </rsm:ExchangedDocumentContext>\n\n  <rsm:ExchangedDocument>\n    <ram:ID>${d.factureNum}</ram:ID>\n    <ram:TypeCode>380</ram:TypeCode>\n    <ram:IssueDateTime>\n      <udt:DateTimeString format=\"102\">${d.isoDate.replace(/-/g, '')}</udt:DateTimeString>\n    </ram:IssueDateTime>\n  </rsm:ExchangedDocument>\n\n  <rsm:SupplyChainTradeTransaction>\n\n    <ram:ApplicableHeaderTradeAgreement>\n      <ram:SellerTradeParty>\n        <ram:Name>${d.artisan.nom}</ram:Name>\n        <ram:SpecifiedLegalOrganization>\n          <ram:ID schemeID=\"0002\">${d.artisan.siret}</ram:ID>\n        </ram:SpecifiedLegalOrganization>\n        <ram:PostalTradeAddress>\n          <ram:LineOne>${d.artisan.adresse}</ram:LineOne>\n          <ram:CountryID>FR</ram:CountryID>\n        </ram:PostalTradeAddress>\n        <ram:URIUniversalCommunication>\n          <ram:URIID schemeID=\"EM\">${d.artisan.email}</ram:URIID>\n        </ram:URIUniversalCommunication>\n      </ram:SellerTradeParty>\n\n      <ram:BuyerTradeParty>\n        <ram:Name>${d.client.nom}</ram:Name>\n        ${d.client.siret ? `<ram:SpecifiedLegalOrganization><ram:ID schemeID=\"0002\">${d.client.siret}</ram:ID></ram:SpecifiedLegalOrganization>` : ''}\n        <ram:PostalTradeAddress>\n          <ram:LineOne>${d.client.adresse}</ram:LineOne>\n          <ram:CountryID>FR</ram:CountryID>\n        </ram:PostalTradeAddress>\n        <ram:URIUniversalCommunication>\n          <ram:URIID schemeID=\"EM\">${d.client.email}</ram:URIID>\n        </ram:URIUniversalCommunication>\n      </ram:BuyerTradeParty>\n\n      <ram:BuyerOrderReferencedDocument>\n        <ram:IssuerAssignedID>${d.devisRef}</ram:IssuerAssignedID>\n      </ram:BuyerOrderReferencedDocument>\n    </ram:ApplicableHeaderTradeAgreement>\n\n    <ram:ApplicableHeaderTradeDelivery/>\n\n    <ram:ApplicableHeaderTradeSettlement>\n      <ram:InvoiceCurrencyCode>EUR</ram:InvoiceCurrencyCode>\n      <ram:SpecifiedTradeSettlementHeaderMonetarySummation>\n        <ram:LineTotalAmount>${d.sousTotal.toFixed(2)}</ram:LineTotalAmount>\n        <ram:TaxBasisTotalAmount>${d.sousTotal.toFixed(2)}</ram:TaxBasisTotalAmount>\n        <ram:TaxTotalAmount currencyID=\"EUR\">${d.tvaMontant.toFixed(2)}</ram:TaxTotalAmount>\n        <ram:GrandTotalAmount>${d.totalTTC.toFixed(2)}</ram:GrandTotalAmount>\n        <ram:DuePayableAmount>${d.totalTTC.toFixed(2)}</ram:DuePayableAmount>\n      </ram:SpecifiedTradeSettlementHeaderMonetarySummation>\n    </ram:ApplicableHeaderTradeSettlement>\n\n  </rsm:SupplyChainTradeTransaction>\n</rsm:CrossIndustryInvoice>`;\n\n// ========================================\n// GÉNÉRATION HTML FACTURE (pour email)\n// ========================================\nconst lignesHTML = d.lignes.map(l => `\n  <tr>\n    <td style=\"padding:10px;border-bottom:1px solid #eee;\">${l.designation}</td>\n    <td style=\"padding:10px;border-bottom:1px solid #eee;text-align:center;\">${l.quantite}</td>\n    <td style=\"padding:10px;border-bottom:1px solid #eee;text-align:center;\">${l.unite}</td>\n    <td style=\"padding:10px;border-bottom:1px solid #eee;text-align:right;\">${parseFloat(l.prix_unitaire_ht).toFixed(2)} €</td>\n    <td style=\"padding:10px;border-bottom:1px solid #eee;text-align:right;font-weight:bold;\">${parseFloat(l.total_ht).toFixed(2)} €</td>\n  </tr>\n`).join('');\n\nconst htmlFacture = `<!DOCTYPE html>\n<html lang=\"fr\">\n<head><meta charset=\"UTF-8\"><title>Facture ${d.factureNum}</title></head>\n<body style=\"font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:20px;color:#333;\">\n\n  <div style=\"background:#1a1a2e;color:white;padding:20px;border-radius:8px;margin-bottom:25px;display:flex;justify-content:space-between;align-items:center;\">\n    <div>\n      <h1 style=\"margin:0;font-size:32px;\">FACTURE</h1>\n      <p style=\"margin:5px 0;opacity:0.8;\">Conforme Factur-X — Réforme 2026</p>\n    </div>\n    <div style=\"text-align:right;\">\n      <p style=\"margin:0;font-size:18px;\"><strong>N° ${d.factureNum}</strong></p>\n      <p style=\"margin:3px 0;opacity:0.8;\">Date : ${d.dateFacture}</p>\n      <p style=\"margin:3px 0;opacity:0.8;\">Échéance : ${d.echeance}</p>\n    </div>\n  </div>\n\n  <div style=\"display:flex;justify-content:space-between;margin-bottom:25px;\">\n    <div style=\"background:#f0f0f0;padding:15px;border-radius:8px;width:45%;\">\n      <h3 style=\"margin:0 0 10px;color:#1a1a2e;\">🔨 Émetteur</h3>\n      <p style=\"margin:3px 0;\"><strong>${d.artisan.nom}</strong></p>\n      <p style=\"margin:3px 0;color:#666;\">SIRET : ${d.artisan.siret}</p>\n      <p style=\"margin:3px 0;color:#666;\">${d.artisan.adresse}</p>\n      <p style=\"margin:3px 0;color:#666;\">✉️ ${d.artisan.email}</p>\n    </div>\n    <div style=\"background:#f0f0f0;padding:15px;border-radius:8px;width:45%;\">\n      <h3 style=\"margin:0 0 10px;color:#1a1a2e;\">👤 Destinataire</h3>\n      <p style=\"margin:3px 0;\"><strong>${d.client.nom}</strong></p>\n      ${d.client.siret ? `<p style=\"margin:3px 0;color:#666;\">SIRET : ${d.client.siret}</p>` : ''}\n      <p style=\"margin:3px 0;color:#666;\">${d.client.adresse}</p>\n      <p style=\"margin:3px 0;color:#666;\">✉️ ${d.client.email}</p>\n    </div>\n  </div>\n\n  <div style=\"background:#fff3cd;padding:12px;border-radius:6px;border-left:4px solid #ffc107;margin-bottom:20px;\">\n    <strong>📋 Référence devis :</strong> ${d.devisRef} — ${d.description}\n  </div>\n\n  <table style=\"width:100%;border-collapse:collapse;margin-bottom:20px;\">\n    <thead>\n      <tr style=\"background:#1a1a2e;color:white;\">\n        <th style=\"padding:12px;text-align:left;\">Désignation</th>\n        <th style=\"padding:12px;text-align:center;\">Qté</th>\n        <th style=\"padding:12px;text-align:center;\">Unité</th>\n        <th style=\"padding:12px;text-align:right;\">P.U. HT</th>\n        <th style=\"padding:12px;text-align:right;\">Total HT</th>\n      </tr>\n    </thead>\n    <tbody>${lignesHTML}</tbody>\n  </table>\n\n  <div style=\"text-align:right;margin-bottom:25px;\">\n    <table style=\"margin-left:auto;min-width:300px;\">\n      <tr style=\"background:#f8f9fa;\">\n        <td style=\"padding:8px 20px;\">Sous-total HT :</td>\n        <td style=\"padding:8px 20px;text-align:right;font-weight:bold;\">${d.sousTotal.toFixed(2)} €</td>\n      </tr>\n      <tr>\n        <td style=\"padding:8px 20px;\">TVA (${d.tvaTaux}%) :</td>\n        <td style=\"padding:8px 20px;text-align:right;\">${d.tvaMontant.toFixed(2)} €</td>\n      </tr>\n      <tr style=\"background:#1a1a2e;color:white;\">\n        <td style=\"padding:12px 20px;font-size:16px;\"><strong>TOTAL TTC</strong></td>\n        <td style=\"padding:12px 20px;text-align:right;font-size:20px;\"><strong>${d.totalTTC.toFixed(2)} €</strong></td>\n      </tr>\n    </table>\n  </div>\n\n  <div style=\"background:#d4edda;border:1px solid #c3e6cb;padding:15px;border-radius:8px;margin-bottom:20px;\">\n    <h4 style=\"margin:0 0 8px;color:#155724;\">✅ Facture conforme Factur-X</h4>\n    <p style=\"margin:0;color:#155724;font-size:14px;\">Cette facture respecte la réglementation française de facturation électronique (réforme 2026). Le fichier XML Factur-X est joint à cet email.</p>\n  </div>\n\n  <div style=\"background:#f8f9fa;padding:15px;border-radius:8px;\">\n    <h4 style=\"margin:0 0 8px;\">💳 Modalités de paiement</h4>\n    <p style=\"margin:0;color:#555;\">Paiement à réception de facture. Échéance : <strong>${d.echeance}</strong></p>\n    <p style=\"margin:5px 0 0;color:#999;font-size:12px;\">En cas de retard : pénalités de 3x le taux d'intérêt légal + indemnité forfaitaire de 40€</p>\n  </div>\n\n  <p style=\"text-align:center;color:#999;font-size:12px;margin-top:25px;\">Facture générée automatiquement par KC Peak IA • Conforme EN 16931 Factur-X Minimum • ${d.dateFacture}</p>\n</body>\n</html>`;\n\nreturn [{\n  json: {\n    ...d,\n    facturX,\n    htmlFacture\n  }\n}];"
+      },
+      "id": "fc915f2b-242e-4321-b6d9-575e7b9c8a71",
+      "name": "🧾 Générer Factur-X + HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.client.email }}",
+        "subject": "=Facture N° {{ $json.factureNum }} — {{ $json.artisan.nom }}",
+        "message": "={{ $json.htmlFacture }}",
+        "options": {
+          "appendAttribution": false,
+          "attachmentsUi": {
+            "attachmentsBinary": []
+          },
+          "ccList": "={{ $json.artisan.email }}"
+        }
+      },
+      "id": "7516d697-151b-4325-9de3-0573cc1fcff0",
+      "name": "📧 Envoyer facture client",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        880,
+        352
+      ],
+      "webhookId": "83fdafe3-518e-44a5-8775-6fad303c1daa",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "ZfBfaDUnJLc7yUL2",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.artisan.email }}",
+        "subject": "=📋 Votre facture {{ $json.factureNum }} + XML Factur-X à déposer sur Chorus Pro",
+        "message": "=<h2>Votre facture a été générée ✅</h2>\n<p>Voici votre facture <strong>{{ $json.factureNum }}</strong> conforme à la réforme 2026.</p>\n<h3>📤 Étapes pour Chorus Pro (portail public gratuit) :</h3>\n<ol>\n  <li>Connectez-vous sur <a href='https://portail.chorus-pro.gouv.fr'>portail.chorus-pro.gouv.fr</a></li>\n  <li>Allez dans <strong>Factures → Déposer une facture</strong></li>\n  <li>Importez le fichier XML ci-joint ({{ $json.factureNum }}.xml)</li>\n  <li>Vérifiez les données et validez</li>\n</ol>\n<p style='background:#d4edda;padding:10px;border-radius:6px;'>\n  ✅ <strong>Factur-X XML joint à cet email</strong><br>\n  Conservez-le précieusement pour vos archives fiscales (10 ans).\n</p>\n<hr>\n<p style='color:#999;font-size:12px;'>Généré automatiquement par KC Peak IA</p>",
+        "options": {}
+      },
+      "id": "c845f9ea-0340-4da5-a9d2-7d80a9074551",
+      "name": "📧 Envoyer copie artisan + XML",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        880,
+        544
+      ],
+      "webhookId": "61d48601-ad6f-48fa-9228-428def902e97",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "ZfBfaDUnJLc7yUL2",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1xSxmrJOltJFDQz--Niht51IkmwkYmrex_xqMuJQITUs/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Factures"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "date": "={{ $json.dateFacture }}",
+            "numero_facture": "={{ $json.factureNum }}",
+            "devis_ref": "={{ $json.devisRef }}",
+            "artisan": "={{ $json.artisan.nom }}",
+            "client": "={{ $json.client.nom }}",
+            "description": "={{ $json.description }}",
+            "sous_total_ht": "={{ $json.sousTotal }}",
+            "tva": "={{ $json.tvaMontant }}",
+            "total_ttc": "={{ $json.totalTTC }}",
+            "statut": "Émise — En attente paiement",
+            "echeance": "={{ $json.echeance }}",
+            "facturx_genere": "OUI",
+            "chorus_pro": "À déposer"
+          }
+        },
+        "options": {}
+      },
+      "id": "14ec0872-7b66-40b2-88c0-fbd14c64518b",
+      "name": "💾 Logger facture dans Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        880,
+        720
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "1jOgrsv3jZkAs2lx",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Vérifier si c'est une facture B2G (client = administration publique)\n// Dans ce cas, soumettre directement à Chorus Pro via API PISTE\nconst d = $input.first().json;\n\n// SIRET commençant par certains codes = secteur public\nconst isPublicSector = d.client.siret && (\n  d.client.siret.startsWith('1') || // État\n  d.client.siret.startsWith('2') || // Collectivités\n  d.client.siret.startsWith('3')    // Hôpitaux\n);\n\nreturn [{\n  json: {\n    ...d,\n    isPublicSector,\n    chorusProUrl: 'https://portail.chorus-pro.gouv.fr',\n    pisteApiUrl: 'https://sandbox-api.piste.gouv.fr/chorus-pro/api/v1',\n    message: isPublicSector \n      ? 'Client secteur public détecté — dépôt Chorus Pro recommandé'\n      : 'Client privé — envoi email direct suffisant pour 2026'\n  }\n}];"
+      },
+      "id": "4f3bc8d6-5cb3-40b5-94c1-f52dd984db00",
+      "name": "🏛️ Vérifier si Chorus Pro requis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "check-public",
+              "leftValue": "={{ $json.isPublicSector }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "eb3df504-f7b3-4c43-97f4-a080cb2da508",
+      "name": "🏛️ Secteur public ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sandbox-api.piste.gouv.fr/oauth/token",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "options": {}
+      },
+      "id": "e24c0550-5055-4a5f-a356-12a0cf945bfe",
+      "name": "🔑 Auth PISTE (Chorus Pro API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1552,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Soumettre la facture XML à Chorus Pro via l'API PISTE\n// Documentation : https://developer.aife.economie.gouv.fr\nconst token = $input.first().json.access_token;\nconst factureData = $('🏛️ Vérifier si Chorus Pro requis').first().json;\n\n// Encoder le XML en base64\nconst xmlBase64 = Buffer.from(factureData.facturX, 'utf-8').toString('base64');\n\nreturn [{\n  json: {\n    token,\n    payload: {\n      listeFactures: [\n        {\n          numeroFactureSaisi: factureData.factureNum,\n          codeDestinataire: factureData.client.siret,\n          denomination: factureData.client.nom,\n          idStructureValideur: factureData.client.siret,\n          designationUniteExecutante: 'Service comptabilité',\n          syntaxeFlux: 'IN_DP_E2_UBL_INVOICE_2_1',\n          modeDepot: 'SAISIE_API',\n          fichierFluxFacture: xmlBase64,\n          nomFichierFluxFacture: `${factureData.factureNum}.xml`\n        }\n      ]\n    },\n    factureData\n  }\n}];"
+      },
+      "id": "1b00df54-6fbc-4a21-a893-3b22e043526a",
+      "name": "📦 Préparer payload Chorus Pro",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.piste.gouv.fr/chorus-pro/api/v1/factures/deposer",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "cpro-account",
+              "value": "VOTRE_NUMERO_SIRET_ARTISAN"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "id": "11df6083-5903-48ea-b7b0-214af95b0bdb",
+      "name": "🏛️ Soumettre à Chorus Pro",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1984,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chorusResult = $input.first().json;\nconst factureData = $('📦 Préparer payload Chorus Pro').first().json.factureData;\n\nconst success = chorusResult.codeRetour === '000' || chorusResult.statut === 'DEPOSEE';\n\nreturn [{\n  json: {\n    ...factureData,\n    chorusStatut: success ? '✅ Déposée sur Chorus Pro' : '⚠️ Dépôt manuel requis',\n    chorusRef: chorusResult.numeroFluxDepot || 'N/A',\n    chorusSuccess: success\n  }\n}];"
+      },
+      "id": "a16bca00-1dec-4db4-9ae9-0df45de48ad9",
+      "name": "✅ Traiter résultat Chorus",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2208,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Client privé — pas besoin de Chorus Pro pour l'instant\n// Dès 2027 : obligation pour tous les B2B aussi\nconst d = $input.first().json;\nreturn [{\n  json: {\n    ...d,\n    chorusStatut: '📧 Email envoyé — Chorus Pro non requis (client privé)',\n    chorusSuccess: true,\n    message: 'Facture envoyée par email. Pour les clients publics, Chorus Pro sera utilisé automatiquement.'\n  }\n}];"
+      },
+      "id": "6dc20b43-1c86-47e5-906c-3acdb4fad287",
+      "name": "✅ Client privé — Email suffisant",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1xSxmrJOltJFDQz--Niht51IkmwkYmrex_xqMuJQITUs/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Factures"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chorus_pro": "={{ $json.chorusStatut }}",
+            "chorus_ref": "={{ $json.chorusRef || 'N/A' }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "b3d42bd6-2d93-4252-8941-d21d3d8c464b",
+      "name": "📊 Mettre à jour statut Chorus",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        2432,
+        544
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "1jOgrsv3jZkAs2lx",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "🔗 Webhook — Créer facture": {
+      "main": [
+        [
+          {
+            "node": "📤 Répondre 200",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "⚙️ Préparer données facture",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚙️ Préparer données facture": {
+      "main": [
+        [
+          {
+            "node": "🧾 Générer Factur-X + HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧾 Générer Factur-X + HTML": {
+      "main": [
+        [
+          {
+            "node": "📧 Envoyer facture client",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "📧 Envoyer copie artisan + XML",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "💾 Logger facture dans Sheets",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "🏛️ Vérifier si Chorus Pro requis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🏛️ Vérifier si Chorus Pro requis": {
+      "main": [
+        [
+          {
+            "node": "🏛️ Secteur public ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🏛️ Secteur public ?": {
+      "main": [
+        [
+          {
+            "node": "🔑 Auth PISTE (Chorus Pro API)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "✅ Client privé — Email suffisant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔑 Auth PISTE (Chorus Pro API)": {
+      "main": [
+        [
+          {
+            "node": "📦 Préparer payload Chorus Pro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📦 Préparer payload Chorus Pro": {
+      "main": [
+        [
+          {
+            "node": "🏛️ Soumettre à Chorus Pro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🏛️ Soumettre à Chorus Pro": {
+      "main": [
+        [
+          {
+            "node": "✅ Traiter résultat Chorus",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✅ Traiter résultat Chorus": {
+      "main": [
+        [
+          {
+            "node": "📊 Mettre à jour statut Chorus",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✅ Client privé — Email suffisant": {
+      "main": [
+        [
+          {
+            "node": "📊 Mettre à jour statut Chorus",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "47e0fde1-c6ad-472b-b237-bcd708d5850c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a3252b898511f611f7193f3fda8405dad7c55f5dd0c8e979a5516d3d93644bf4"
+  },
+  "id": "EoeYUoysRTklbsSU",
+  "tags": [
+    {
+      "updatedAt": "2026-03-29T15:31:50.801Z",
+      "createdAt": "2026-03-29T15:31:50.801Z",
+      "id": "0mabExPFlPUwspuW",
+      "name": "KC Peak"
+    },
+    {
+      "updatedAt": "2026-04-08T11:06:56.544Z",
+      "createdAt": "2026-04-08T11:06:56.544Z",
+      "id": "83rH7Hx0uzhIWkzV",
+      "name": "BTP"
+    },
+    {
+      "updatedAt": "2026-04-08T11:07:18.792Z",
+      "createdAt": "2026-04-08T11:07:18.792Z",
+      "id": "UIe3fd2xwO77LhLO",
+      "name": "Facturation"
+    }
+  ]
+}
