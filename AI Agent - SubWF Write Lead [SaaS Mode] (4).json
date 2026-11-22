@@ -1,0 +1,805 @@
+{
+  "name": "AI Agent - SubWF Write Lead [SaaS Mode]",
+  "nodes": [
+    {
+      "parameters": {
+        "public": true,
+        "initialMessages": "=Bonjour ! 👋 Bienvenue chez {{ $json.config.COMPANY_NAME || 'notre entreprise' }}. Comment puis-je vous aider aujourd'hui ?",
+        "options": {}
+      },
+      "id": "28f11b3a-57ba-477c-b438-7fef1eb0d80b",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        608,
+        32
+      ],
+      "webhookId": "lead-qualifier-main"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1EkrE3p4dF_zcTuzTbqp4vtLXYV7QOKMn93BZ_Vmqt3Q",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Configuration",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "f69bd124-df6d-4ea2-b9a9-a569ff28d493",
+      "name": "📋 Read Client Configuration",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1072,
+        32
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "AkD6vU3yjbkmi7Uc",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "notes": "⚠️ CONFIGURATION REQUISE: Remplacez 'documentId.value' par l'URL du Google Sheet du client. Ce nœud lit l'onglet 'Configuration' avec les colonnes Clé / Valeur."
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// TRANSFORMATION: Configuration rows → Global variables object\n// ============================================================\n// Reads all rows from the 'Configuration' sheet (Clé / Valeur)\n// and builds a single config object accessible downstream.\n//\n// Expected sheet structure:\n// | Clé              | Valeur                          |\n// |------------------|---------------------------------|\n// | COMPANY_NAME     | Mon Entreprise                  |\n// | SYSTEM_PROMPT    | Tu es un assistant IA...        |\n// | FIELD_1_NAME     | Nom complet                     |\n// | FIELD_2_NAME     | Organisation / Objectif         |\n// | FIELD_3_NAME     | Volume / Budget                 |\n// | FIELD_4_NAME     | Matériau / Préférences          |\n// ============================================================\n\nconst configRows = $input.all();\nconst config = {};\nconst fieldNames = {};\n\nfor (const row of configRows) {\n  const key = (row.json['Clé'] || row.json['Cle'] || row.json['cle'] || row.json['clé'] || row.json['Key'] || row.json['key'] || '').toString().trim();\n  const value = (row.json['Valeur'] || row.json['valeur'] || row.json['Value'] || row.json['value'] || '').toString().trim();\n  \n  if (key) {\n    config[key] = value;\n    \n    // Extract field names for dynamic mapping\n    const fieldMatch = key.match(/^FIELD_(\\d+)_NAME$/);\n    if (fieldMatch) {\n      fieldNames[`field_${fieldMatch[1]}`] = value;\n    }\n  }\n}\n\n// Validate required keys\nconst requiredKeys = ['COMPANY_NAME', 'SYSTEM_PROMPT'];\nconst missingKeys = requiredKeys.filter(k => !config[k]);\nif (missingKeys.length > 0) {\n  throw new Error(`❌ Configuration incomplète. Clés manquantes: ${missingKeys.join(', ')}`);\n}\n\nreturn [{\n  json: {\n    config: config,\n    fieldNames: fieldNames,\n    companyName: config.COMPANY_NAME,\n    systemPrompt: config.SYSTEM_PROMPT,\n    field1: config.FIELD_1_NAME || 'Nom complet',\n    field2: config.FIELD_2_NAME || 'Information 2',\n    field3: config.FIELD_3_NAME || 'Information 3',\n    field4: config.FIELD_4_NAME || 'Information 4',\n    _meta: {\n      configLoadedAt: new Date().toISOString(),\n      totalKeys: Object.keys(config).length,\n      totalFields: Object.keys(fieldNames).length\n    }\n  }\n}];"
+      },
+      "id": "bcb35697-f0a2-428d-a98f-6e14810d8fbd",
+      "name": "⚙️ Build Config Variables",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Chat Trigger').item.json.chatInput }}",
+        "options": {}
+      },
+      "id": "e28f5f45-5225-4cf7-8f6d-63b5ea69bec6",
+      "name": "🤖 AI Agent (Dynamic)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        1824,
+        32
+      ],
+      "notes": "Le System Prompt est injecté dynamiquement depuis la clé SYSTEM_PROMPT du Google Sheet Configuration du client. Plus aucun prompt codé en dur."
+    },
+    {
+      "parameters": {
+        "contextWindowLength": 20
+      },
+      "id": "88c73f06-622c-49dd-b816-3f404840660f",
+      "name": "Window Buffer Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        1824,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "name": "read_catalog",
+        "description": "=Utilise cet outil pour consulter les produits, services et tarifs de {{ $('⚙️ Build Config Variables').item.json.companyName }}. Si le client pose une question sur un tarif ou un produit, identifie le nom du produit dans sa demande et insère-le OBLIGATOIREMENT dans le champ 'query' de cet outil. Ne laisse jamais le champ 'query' vide.",
+        "workflowId": {
+          "__rl": true,
+          "value": "hoI7hXDIQ1ebHbWm",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/hoI7hXDIQ1ebHbWm"
+        },
+        "fields": {
+          "values": [
+            {
+              "name": "query"
+            }
+          ]
+        },
+        "specifyInputSchema": true,
+        "jsonSchemaExample": "{\n  \"query\": \"nom du produit recherché\"\n}"
+      },
+      "id": "a65945f1-df5f-491e-80f5-1e279d902f19",
+      "name": "🔍 Tool: Read Catalog",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1424,
+        288
+      ],
+      "notes": "⚠️ Remplacez 'workflowId.value' par l'ID réel du sous-workflow AI_Agent_SubWF_Read_Catalog"
+    },
+    {
+      "parameters": {
+        "name": "write_lead",
+        "description": "=Enregistre les informations d'un lead qualifié pour {{ $('⚙️ Build Config Variables').item.json.companyName }}. Utilise cet outil une fois que tu as collecté suffisamment d'informations: {{ $('⚙️ Build Config Variables').item.json.field1 }}, {{ $('⚙️ Build Config Variables').item.json.field2 }}, {{ $('⚙️ Build Config Variables').item.json.field3 }}, {{ $('⚙️ Build Config Variables').item.json.field4 }}.",
+        "workflowId": {
+          "__rl": true,
+          "value": "hoI7hXDIQ1ebHbWm",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/hoI7hXDIQ1ebHbWm"
+        },
+        "fields": {
+          "values": [
+            {
+              "name": "nom_contact"
+            },
+            {
+              "name": "variable_2"
+            },
+            {
+              "name": "variable_3"
+            },
+            {
+              "name": "variable_4"
+            }
+          ]
+        }
+      },
+      "id": "9ba5c669-4da9-4564-b1ff-a922de1ae0cc",
+      "name": "📝 Tool: Write Lead",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1728,
+        288
+      ],
+      "notes": "⚠️ Remplacez 'workflowId.value' par l'ID réel du sous-workflow AI_Agent_SubWF_Write_Lead. Les descriptions des champs sont dynamiques depuis la config."
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "8c4d2719-b4d0-419e-a04b-6d744db7092b",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        768,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1EkrE3p4dF_zcTuzTbqp4vtLXYV7QOKMn93BZ_Vmqt3Q",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Catalogue",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "63bd4aea-693a-44f3-a0c9-7c8fb93cd709",
+      "name": "📦 Read Catalogue Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1200,
+        608
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "AkD6vU3yjbkmi7Uc",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "notes": "⚠️ CONFIGURATION REQUISE: Remplacez 'documentId.value' par l'URL du Google Sheet du client. Ce nœud lit l'onglet 'Catalogue' avec des colonnes libres (nom, prix, description, etc.)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// AGNOSTIC CATALOG FORMATTER\n// ============================================================\n// Ce code est 100% agnostique : il lit TOUTES les colonnes\n// présentes dans l'onglet 'Catalogue', quel que soit leur nom.\n// Fonctionne pour : vêtements, repas, immobilier, services, etc.\n//\n// Exemple de sortie :\n// --- Produit 1 ---\n// Nom: T-Shirt Bio\n// Prix: 29.99€\n// Taille: M, L, XL\n// ---\n// ============================================================\n\nconst catalogRows = $input.all();\n\nif (!catalogRows || catalogRows.length === 0) {\n  return [{ json: { catalog_text: '⚠️ Le catalogue est vide. Aucun produit ou service trouvé.' } }];\n}\n\n// Detect all column names from the first row\nconst sampleRow = catalogRows[0].json;\nconst columnNames = Object.keys(sampleRow).filter(key => {\n  // Filter out n8n internal metadata keys\n  const lower = key.toLowerCase();\n  return !lower.startsWith('_') && \n         lower !== 'row_number' && \n         lower !== 'row number' &&\n         key !== '';\n});\n\nif (columnNames.length === 0) {\n  return [{ json: { catalog_text: '⚠️ Aucune colonne détectée dans le catalogue.' } }];\n}\n\n// Format each row as a readable text block\nconst formattedItems = catalogRows.map((row, index) => {\n  const data = row.json;\n  const lines = [`--- Élément ${index + 1} ---`];\n  \n  for (const col of columnNames) {\n    const value = data[col];\n    \n    // Skip empty or null values\n    if (value === null || value === undefined || value === '') continue;\n    \n    // Capitalize the column name for readability\n    const displayName = col\n      .replace(/_/g, ' ')\n      .replace(/\\b\\w/g, char => char.toUpperCase());\n    \n    lines.push(`${displayName}: ${value}`);\n  }\n  \n  return lines.join('\\n');\n}).filter(block => block.split('\\n').length > 1); // Remove items with no data\n\nconst catalogText = formattedItems.length > 0\n  ? `📋 CATALOGUE (${formattedItems.length} éléments):\\n\\n${formattedItems.join('\\n\\n')}`\n  : '⚠️ Aucun élément valide trouvé dans le catalogue.';\n\n// Also provide structured data for advanced use\nconst structuredData = catalogRows.map(row => {\n  const clean = {};\n  for (const col of columnNames) {\n    if (row.json[col] !== null && row.json[col] !== undefined && row.json[col] !== '') {\n      clean[col] = row.json[col];\n    }\n  }\n  return clean;\n}).filter(obj => Object.keys(obj).length > 0);\n\nreturn [{\n  json: {\n    catalog_text: catalogText,\n    total_items: formattedItems.length,\n    columns_detected: columnNames,\n    structured_data: structuredData,\n    _meta: {\n      generatedAt: new Date().toISOString(),\n      columnsCount: columnNames.length,\n      rowsProcessed: catalogRows.length\n    }\n  }\n}];"
+      },
+      "id": "09cc0956-f1ae-4127-8ff8-db2576298355",
+      "name": "🔄 Format Catalogue (Agnostic)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        608
+      ],
+      "notes": "Code 100% agnostique : détecte automatiquement toutes les colonnes du Sheet et les formate. Aucune modification nécessaire quel que soit le secteur du client."
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1EkrE3p4dF_zcTuzTbqp4vtLXYV7QOKMn93BZ_Vmqt3Q",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Configuration",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "53ba0c19-7769-4299-9002-2ef70e7cfc4a",
+      "name": "📋 Read Config (Field Names)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2016,
+        352
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "AkD6vU3yjbkmi7Uc",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "notes": "⚠️ CONFIGURATION REQUISE: Remplacez 'documentId.value' par l'URL du Google Sheet du client. Lit la config pour mapper dynamiquement les noms de colonnes."
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// DYNAMIC LEAD NORMALIZER\n// ============================================================\n// Ce nœud reçoit les données de l'Agent (clés génériques) +\n// la configuration du client, et mappe dynamiquement les\n// valeurs vers les bonnes colonnes du Sheet 'Leads'.\n//\n// Données reçues de l'Agent via le Tool :\n// - nom_contact  → mappé vers FIELD_1_NAME (ex: 'Nom complet')\n// - variable_2   → mappé vers FIELD_2_NAME (ex: 'Organisation')\n// - variable_3   → mappé vers FIELD_3_NAME (ex: 'Budget')\n// - variable_4   → mappé vers FIELD_4_NAME (ex: 'Préférences')\n//\n// Le résultat est un objet avec les VRAIS noms de colonnes\n// du Sheet, prêt à être inséré directement.\n// ============================================================\n\n// Get the trigger input data (from the Agent tool call)\nconst triggerData = $('Execute Workflow Trigger').item.json;\n\n// Get config rows to build field name mapping\nconst configRows = $input.all();\nconst config = {};\n\nfor (const row of configRows) {\n  const key = (row.json['Clé'] || row.json['Cle'] || row.json['cle'] || row.json['clé'] || row.json['Key'] || row.json['key'] || '').toString().trim();\n  const value = (row.json['Valeur'] || row.json['valeur'] || row.json['Value'] || row.json['value'] || '').toString().trim();\n  if (key) config[key] = value;\n}\n\n// Build the dynamic column mapping\nconst fieldMapping = {\n  'nom_contact': config.FIELD_1_NAME || 'Nom complet',\n  'variable_2':  config.FIELD_2_NAME || 'Information 2',\n  'variable_3':  config.FIELD_3_NAME || 'Information 3',\n  'variable_4':  config.FIELD_4_NAME || 'Information 4'\n};\n\n// Build the output row with the REAL column names from the client's sheet\nconst leadRow = {};\n\n// Map each generic key to the real column name\nfor (const [genericKey, realColumnName] of Object.entries(fieldMapping)) {\n  const value = triggerData[genericKey];\n  if (value !== undefined && value !== null && value !== '') {\n    leadRow[realColumnName] = value.toString().trim();\n  }\n}\n\n// Add metadata columns (always present)\nleadRow['Date'] = new Date().toLocaleDateString('fr-FR', {\n  year: 'numeric',\n  month: '2-digit',\n  day: '2-digit',\n  hour: '2-digit',\n  minute: '2-digit'\n});\nleadRow['Source'] = 'AI Chat Agent';\nleadRow['Statut'] = 'Nouveau';\n\n// Also pass through any EXTRA fields the agent might have collected\n// that don't match the standard generic keys\nconst standardKeys = ['nom_contact', 'variable_2', 'variable_3', 'variable_4', 'query'];\nfor (const [key, value] of Object.entries(triggerData)) {\n  if (!standardKeys.includes(key) && value && value.toString().trim()) {\n    // Check if there's a matching FIELD_N_NAME for extra fields\n    const extraFieldMatch = key.match(/^variable_(\\d+)$/);\n    if (extraFieldMatch) {\n      const fieldNum = extraFieldMatch[1];\n      const configKey = `FIELD_${fieldNum}_NAME`;\n      if (config[configKey]) {\n        leadRow[config[configKey]] = value.toString().trim();\n      }\n    } else {\n      // Pass through as-is (for any custom fields)\n      leadRow[key] = value.toString().trim();\n    }\n  }\n}\n\nreturn [{\n  json: {\n    leadRow: leadRow,\n    fieldMapping: fieldMapping,\n    _meta: {\n      normalizedAt: new Date().toISOString(),\n      fieldsPopulated: Object.keys(leadRow).length,\n      companyName: config.COMPANY_NAME || 'Unknown'\n    }\n  }\n}];"
+      },
+      "id": "a4ccd5e2-bc1c-4d0b-a9e9-a4e29ca93cd3",
+      "name": "🔄 Normalize Lead (Dynamic)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        352
+      ],
+      "notes": "Mappe les clés génériques (nom_contact, variable_2, etc.) vers les vrais noms de colonnes du Sheet du client en utilisant FIELD_1_NAME, FIELD_2_NAME, etc."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1EkrE3p4dF_zcTuzTbqp4vtLXYV7QOKMn93BZ_Vmqt3Q",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Nom complet",
+              "displayName": "Nom complet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Budget",
+              "displayName": "Budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Téléphone",
+              "displayName": "Téléphone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Statut",
+              "displayName": "Statut",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "356fbfd9-4290-48c7-a24b-187f661dbdee",
+      "name": "📝 Write Lead to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2624,
+        352
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "AkD6vU3yjbkmi7Uc",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "notes": "⚠️ CONFIGURATION REQUISE: Remplacez 'documentId.value' par l'URL du Google Sheet du client. Ce nœud écrit dans l'onglet 'Leads'. IMPORTANT: Utilisez le mode 'Auto-Map Input Data' et passez le champ 'leadRow' comme source de données. Les colonnes seront automatiquement mappées grâce au nœud de normalisation."
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// PREPARE DATA FOR GOOGLE SHEETS APPEND\n// ============================================================\n// Extracts the leadRow object and flattens it so Google Sheets\n// can auto-map each key to its corresponding column header.\n// ============================================================\n\nconst leadRow = $input.item.json.leadRow;\n\nif (!leadRow || Object.keys(leadRow).length === 0) {\n  throw new Error('❌ Aucune donnée de lead à écrire.');\n}\n\n// Flatten: return the leadRow directly as the output JSON\n// This allows Google Sheets to auto-map columns by name\nreturn [{ json: leadRow }];"
+      },
+      "id": "6f04436a-6972-4f5b-8596-3d38447c5e34",
+      "name": "📤 Flatten for Sheets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        352
+      ],
+      "notes": "Aplatit l'objet leadRow pour que Google Sheets puisse auto-mapper les colonnes"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return success confirmation to the Agent\nreturn [{\n  json: {\n    success: true,\n    message: `✅ Lead enregistré avec succès dans le Google Sheet.`,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "93e13cdf-b5f2-4054-a3dd-e61bb0a4886a",
+      "name": "✅ Confirm Write",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2864,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "{{ $json.query }}",
+                    "rightValue": "={{ $json.nom_contact }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEmpty",
+                      "singleValue": true
+                    },
+                    "id": "689bcce8-07f9-4f91-a59a-10245c1253d2"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "dcf9e006-b0b8-4412-a2e6-13faa6ce47c5",
+                    "leftValue": "={{ $json.nom_contact }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEmpty",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        976,
+        624
+      ],
+      "id": "34a64ad1-1878-42d9-add7-a014fdf59ac6",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4e126c58-aa3a-4260-8046-b673103fccff",
+              "name": "response",
+              "value": "={{ $('🔄 Format Catalogue (Agnostic)') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1872,
+        608
+      ],
+      "id": "b9baf65c-9d85-4248-b2bd-904b2c67b892",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "model": "llama-3.1-8b-instant",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        1536,
+        320
+      ],
+      "id": "0d59938b-5245-4aeb-ae38-a890ba2564f2",
+      "name": "Groq Chat Model",
+      "credentials": {
+        "groqApi": {
+          "id": "K1HdKU2OFKhft85C",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1408,
+        608
+      ],
+      "id": "bc13738b-d539-482b-9320-0549f6d41bc0",
+      "name": "Wait",
+      "webhookId": "7e14bd53-a519-46e0-84c2-74446dd63eec"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaSupcn60J4SPXTXgb_kjZeeYetXQkxhVaTAzLqgzJQ",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Cache !",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1536,
+        32
+      ],
+      "id": "8d62886d-b852-4399-8b88-7bc14b032db4",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "AkD6vU3yjbkmi7Uc",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        816,
+        32
+      ],
+      "id": "bcd1731d-a601-4e8f-9ea9-4c51abb06c98",
+      "name": "Get row(s) in sheet1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "AkD6vU3yjbkmi7Uc",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## A CONFIG \nA Config pour le Cache Groq pour eviter de franchir la limite FREE"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        768,
+        -144
+      ],
+      "id": "0c990b2d-ebdf-40da-a258-76a794a2432a",
+      "name": "Sticky Note1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Chat Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📋 Read Client Configuration": {
+      "main": [
+        [
+          {
+            "node": "⚙️ Build Config Variables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚙️ Build Config Variables": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "🤖 AI Agent (Dynamic)",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Tool: Read Catalog": {
+      "ai_tool": [
+        [
+          {
+            "node": "🤖 AI Agent (Dynamic)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Tool: Write Lead": {
+      "ai_tool": [
+        [
+          {
+            "node": "🤖 AI Agent (Dynamic)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📦 Read Catalogue Sheet": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔄 Format Catalogue (Agnostic)": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📋 Read Config (Field Names)": {
+      "main": [
+        [
+          {
+            "node": "🔄 Normalize Lead (Dynamic)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔄 Normalize Lead (Dynamic)": {
+      "main": [
+        [
+          {
+            "node": "📤 Flatten for Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📤 Flatten for Sheets": {
+      "main": [
+        [
+          {
+            "node": "📝 Write Lead to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Write Lead to Sheet": {
+      "main": [
+        [
+          {
+            "node": "✅ Confirm Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [],
+        [
+          {
+            "node": "📋 Read Config (Field Names)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "🤖 AI Agent (Dynamic)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "🔄 Format Catalogue (Agnostic)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "🤖 AI Agent (Dynamic)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet1": {
+      "main": [
+        [
+          {
+            "node": "📋 Read Client Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "cdcfe17a-9bdd-4641-bb2d-e695f6eb3257",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a3252b898511f611f7193f3fda8405dad7c55f5dd0c8e979a5516d3d93644bf4"
+  },
+  "id": "hoI7hXDIQ1ebHbWm",
+  "tags": []
+}
