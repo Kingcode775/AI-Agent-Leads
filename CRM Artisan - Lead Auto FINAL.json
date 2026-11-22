@@ -1,0 +1,173 @@
+{
+  "name": "CRM Artisan - Lead Auto FINAL",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nouveau-lead",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "8df7ece1-e7f2-4ba1-b070-ad0072c958f1",
+      "name": "Nouveau Lead (Webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        432
+      ],
+      "webhookId": "54e42d34-0b25-4635-b702-173aa2f77154"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\n\nconst nom = body.nom || body['Votre nom'] || 'Inconnu';\nconst email = body.email || body['Votre email'] || '';\nconst telephone = body.telephone || body['Votre téléphone'] || '';\nconst adresse = body.adresse || body['Votre adresse'] || '';\nconst probleme = body.probleme || body['Décrivez votre problème'] || '';\nconst urgence = body.urgence || body['Est-ce urgent ?'] || 'Non';\nconst date = new Date().toLocaleString('fr-FR', {timeZone: 'Europe/Paris'});\n\nreturn [{\n  json: {\n    nom,\n    email,\n    telephone,\n    adresse,\n    probleme,\n    urgence,\n    date,\n    statut: 'Nouveau'\n  }\n}];"
+      },
+      "id": "325c4f42-e1c1-46f0-b67e-9b443b38b2b8",
+      "name": "Formater les données",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        16,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        }
+      },
+      "id": "f819992a-84a9-4d4e-b9c2-267697bb0e0a",
+      "name": "Enregistrer dans Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        224,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Formater les données').item.json.email }}",
+        "subject": "✅ Votre demande a bien été reçue !",
+        "message": "=<html>\n<body style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;\">\n  <div style=\"background-color: #1a73e8; padding: 20px; border-radius: 8px 8px 0 0;\">\n    <h1 style=\"color: white; margin: 0; font-size: 22px;\">🔧 Demande bien reçue !</h1>\n  </div>\n  <div style=\"background-color: #f9f9f9; padding: 25px; border-radius: 0 0 8px 8px; border: 1px solid #ddd;\">\n    <p>Bonjour <strong>{{ $('Formater les données').item.json.nom }}</strong>,</p>\n    <p>Nous avons bien reçu votre demande d'intervention. Notre équipe vous recontactera <strong>dans les plus brefs délais</strong>.</p>\n    <div style=\"background-color: #e8f0fe; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #1a73e8;\">\n      <h3 style=\"margin: 0 0 10px 0; color: #1a73e8;\">📋 Récapitulatif de votre demande</h3>\n      <p style=\"margin: 5px 0;\">🔧 <strong>Problème :</strong> {{ $('Formater les données').item.json.probleme }}</p>\n      <p style=\"margin: 5px 0;\">🚨 <strong>Urgence :</strong> {{ $('Formater les données').item.json.urgence }}</p>\n      <p style=\"margin: 5px 0;\">📍 <strong>Adresse :</strong> {{ $('Formater les données').item.json.adresse }}</p>\n      <p style=\"margin: 5px 0;\">📅 <strong>Date :</strong> {{ $('Formater les données').item.json.date }}</p>\n    </div>\n    <p>En cas d'urgence absolue, n'hésitez pas à nous appeler directement.</p>\n    <p style=\"color: #666; font-size: 13px; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 20px;\">Cordialement,<br><strong>Votre Artisan de confiance</strong></p>\n  </div>\n</body>\n</html>",
+        "options": {
+          "senderName": "Votre Artisan"
+        }
+      },
+      "id": "029d749e-b0dd-4082-b1e6-c37368d07c70",
+      "name": "Email au client",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        224,
+        432
+      ],
+      "webhookId": "0f9a5ebf-5bb7-4cbb-92d4-35e69c147489"
+    },
+    {
+      "parameters": {
+        "chatId": "8507543493",
+        "text": "=🔔 *NOUVEAU LEAD !*\n\n👤 *Nom :* {{ $('Formater les données').item.json.nom }}\n📞 *Téléphone :* {{ $('Formater les données').item.json.telephone }}\n📧 *Email :* {{ $('Formater les données').item.json.email }}\n📍 *Adresse :* {{ $('Formater les données').item.json.adresse }}\n🔧 *Problème :* {{ $('Formater les données').item.json.probleme }}\n🚨 *Urgent :* {{ $('Formater les données').item.json.urgence }}\n📅 *Date :* {{ $('Formater les données').item.json.date }}\n\n✅ _Enregistré dans Google Sheets_",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "c4c4f6e7-8b9d-4ab8-9c58-4178b18b7fdf",
+      "name": "Notification Telegram Patron",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        576
+      ],
+      "webhookId": "c3c7ad05-101e-4b69-814f-9ab783867aad",
+      "credentials": {
+        "telegramApi": {
+          "id": "Y5pJUIAlHdjrrUlH",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, message: 'Lead enregistré avec succès !' }) }}",
+        "options": {}
+      },
+      "id": "fafc0082-a028-4e1b-9aa6-b007b6778b09",
+      "name": "Réponse Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        448,
+        432
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Nouveau Lead (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "Formater les données",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formater les données": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer dans Google Sheets",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email au client",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Notification Telegram Patron",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enregistrer dans Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Réponse Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "8a59674b-d2b5-4f97-a747-7c3d792bb3d0",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a3252b898511f611f7193f3fda8405dad7c55f5dd0c8e979a5516d3d93644bf4"
+  },
+  "id": "mHO9GazjZMcggVvs",
+  "tags": []
+}
