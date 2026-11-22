@@ -1,0 +1,931 @@
+{
+  "name": "KC Peak — Devis Auto WhatsApp v2.0 (100% France)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## WORKFLOW 2 v2.0 — DEVIS AUTOMATIQUE BTP FRANCE\n\n**Flux :** WhatsApp vocal/texte → Gemini 2.0 → Devis HTML → Email + WhatsApp\n\n**Nouveautés v2 :**\n- Mention RGPD automatique à chaque conversation\n- Gestion TVA intelligente : 0% franchise / 10% BTP / 20% normal\n- Prompt Gemini optimisé artisans BTP français\n- Messages WhatsApp 100% français\n- Accusé de réception immédiat\n- Anti-doublon (ignore messages > 5 min)\n- Design HTML facture professionnel\n\n**Config requise :**\n1. META_VERIFY_TOKEN\n2. WHATSAPP_TOKEN\n3. WHATSAPP_PHONE_ID\n4. VOTRE_CLE_GEMINI\n5. GMAIL_CREDENTIAL_ID\n6. VOTRE_GOOGLE_SHEETS_URL\n7. VOTRE_EMAIL_ARTISAN\n\n**RGPD :** Données traitées via Gemini (Google LLC). Base légale : exécution du contrat (art. 6.1.b RGPD). Conservation : 10 ans (obligation comptable).",
+        "height": 420,
+        "width": 500,
+        "color": 5
+      },
+      "id": "80f28a97-7c51-4139-8af4-b4c90c41bec9",
+      "name": "Guide Setup v2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "path": "whatsapp-devis",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "7a231559-9783-4ace-a0fc-9f5c6b7c8b03",
+      "name": "Webhook — Verification Meta",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        512
+      ],
+      "webhookId": "whatsapp-devis-verify"
+    },
+    {
+      "parameters": {
+        "path": "whatsapp-devis",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1adc514a-db51-4b19-8b64-a6d3bb5699de",
+      "name": "Webhook — Message WhatsApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        720
+      ],
+      "webhookId": "whatsapp-devis-message"
+    },
+    {
+      "parameters": {
+        "jsCode": "const query = $input.first().json.query;\nconst VERIFY_TOKEN = 'VOTRE_META_VERIFY_TOKEN';\nif (query['hub.mode'] === 'subscribe' && query['hub.verify_token'] === VERIFY_TOKEN) {\n  return [{ json: { challenge: query['hub.challenge'], valid: true } }];\n}\nreturn [{ json: { valid: false, challenge: '' } }];"
+      },
+      "id": "4a194d0d-e597-4ed5-990d-2e79a1a158fa",
+      "name": "Verifier token Meta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.challenge }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "466f1866-b264-4f62-82dc-ef9f9742b2a1",
+      "name": "Repondre verification",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        448,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{ \"status\": \"received\" }",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "838b75f0-eb23-4684-bc37-9320924bdad9",
+      "name": "Repondre WhatsApp 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        224,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\ntry {\n  const entry = body.entry?.[0];\n  const value = entry?.changes?.[0]?.value;\n  const messages = value?.messages;\n  if (!messages || messages.length === 0) return [{ json: { skip: true, reason: 'Pas de message' } }];\n  const message = messages[0];\n  const contact = value.contacts?.[0];\n  const phoneNumberId = value.metadata?.phone_number_id;\n  const from = message.from;\n  const fromName = contact?.profile?.name || 'Artisan';\n  const msgType = message.type;\n  const messageAge = Date.now() - parseInt(message.timestamp) * 1000;\n  if (messageAge > 5 * 60 * 1000) return [{ json: { skip: true, reason: 'Message trop ancien' } }];\n  let audioId = null, textContent = null, audioMimeType = 'audio/ogg';\n  if (msgType === 'audio' || msgType === 'voice') {\n    audioId = message.audio?.id || message.voice?.id;\n    audioMimeType = message.audio?.mime_type || message.voice?.mime_type || 'audio/ogg';\n  } else if (msgType === 'text') {\n    textContent = message.text.body;\n    if (textContent.trim().split(' ').length < 4) return [{ json: { skip: true, reason: 'Message trop court', from, phoneNumberId, tooShort: true } }];\n  } else {\n    return [{ json: { skip: true, reason: 'Type non supporte: ' + msgType, from, phoneNumberId, unsupportedType: true } }];\n  }\n  return [{ json: { skip: false, from, fromName, msgType, audioId, audioMimeType, textContent, phoneNumberId } }];\n} catch (e) {\n  return [{ json: { skip: true, reason: 'Erreur parsing: ' + e.message } }];\n}"
+      },
+      "id": "8262a211-1341-49be-95c4-03cea9642e78",
+      "name": "Parser message WhatsApp",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "check-skip",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEqual"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5c57aada-bab2-46c3-9303-c2eb313c4fc3",
+      "name": "Message valide ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        672,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nif (!data.from || !data.phoneNumberId) return [];\nlet msg = '';\nif (data.tooShort) msg = 'Bonjour ! Pour generer un devis, decrivez votre chantier en quelques phrases : type de travaux, surface, materiaux... Je m\\'occupe du reste !';\nelse if (data.unsupportedType) msg = 'Je ne peux traiter que les messages vocaux ou texte. Envoyez-moi un vocal ou decrivez votre chantier par ecrit !';\nif (!msg) return [];\nreturn [{ json: { ...data, helpMessage: msg } }];"
+      },
+      "id": "1c3016e6-3c8c-458d-8cc9-3fb44dc4e4cf",
+      "name": "Preparer aide",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/{{ $json.phoneNumberId }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer EAATKvY1rPQIBRb20JEEX44wMcxo7GvPOrlDnjtrOPsxSZAGsiZBHpstAM6ZBWpGCI2AV4YycWZCDf8jFRdC9hLPBVQKRCIiichzKohZAZBWsUiaFXVQxjs9SMxwkncqwSVQItkA7joyYTZC5TqN6XTVVLludiu6n4qZCZAAE7HkZBr2nGMdF0wxTsRwc6v4DPzv9QUCQZDZD"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"messaging_product\":\"whatsapp\",\"to\":\"{{ $json.from }}\",\"type\":\"text\",\"text\":{\"body\":\"{{ $json.helpMessage }}\"}}",
+        "options": {}
+      },
+      "id": "483cda9f-067f-4825-889e-ecf8a61487be",
+      "name": "Envoyer aide",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1104,
+        976
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ZFlTLqwH6xyFnqEF",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "check-audio",
+              "leftValue": "={{ $json.msgType }}",
+              "rightValue": "text",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e0da34fc-2c09-49d5-bd94-c8d970754700",
+      "name": "Message audio ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        880,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v18.0/{{ $json.audioId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer EAATKvY1rPQIBRb20JEEX44wMcxo7GvPOrlDnjtrOPsxSZAGsiZBHpstAM6ZBWpGCI2AV4YycWZCDf8jFRdC9hLPBVQKRCIiichzKohZAZBWsUiaFXVQxjs9SMxwkncqwSVQItkA7joyYTZC5TqN6XTVVLludiu6n4qZCZAAE7HkZBr2nGMdF0wxTsRwc6v4DPzv9QUCQZDZD"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "081d9594-3268-4f44-b14c-81e9eed8103c",
+      "name": "Recuperer URL audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1104,
+        624
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ZFlTLqwH6xyFnqEF",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer EAATKvY1rPQIBRb20JEEX44wMcxo7GvPOrlDnjtrOPsxSZAGsiZBHpstAM6ZBWpGCI2AV4YycWZCDf8jFRdC9hLPBVQKRCIiichzKohZAZBWsUiaFXVQxjs9SMxwkncqwSVQItkA7joyYTZC5TqN6XTVVLludiu6n4qZCZAAE7HkZBr2nGMdF0wxTsRwc6v4DPzv9QUCQZDZD"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "41456902-0852-4fe0-a4c1-a6a571a15c21",
+      "name": "Telecharger audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1328,
+        624
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ZFlTLqwH6xyFnqEF",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const audioData = $input.first().binary?.data;\nconst prevData = $('Parser message WhatsApp').first().json;\nconst base64Audio = audioData ? audioData.toString('base64') : '';\nreturn [{ json: { ...prevData, base64Audio, mimeType: prevData.audioMimeType || 'audio/ogg', hasAudio: base64Audio.length > 0 } }];"
+      },
+      "id": "90ee3a88-fe89-48d7-95af-e421e94bba78",
+      "name": "Preparer audio base64",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nreturn [{ json: { ...data, base64Audio: null, hasAudio: false } }];"
+      },
+      "id": "1b8be2b0-d32f-4a0c-a596-26df709a5ecc",
+      "name": "Preparer texte",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $input.first().json }];"
+      },
+      "id": "1b57fd15-be12-4880-bcdd-32d7956aab3d",
+      "name": "Fusionner entrees",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst WHATSAPP_TOKEN = 'VOTRE_WHATSAPP_TOKEN';\ntry {\n  await $helpers.httpRequest({\n    method: 'POST',\n    url: `https://graph.facebook.com/v18.0/${data.phoneNumberId}/messages`,\n    headers: { 'Authorization': `Bearer ${WHATSAPP_TOKEN}`, 'Content-Type': 'application/json' },\n    body: JSON.stringify({ messaging_product: 'whatsapp', to: data.from, type: 'text', text: { body: 'Preparation de votre devis en cours (environ 20 secondes)...\\n\\nVos donnees sont traitees conformement au RGPD.' } })\n  });\n} catch (e) { /* non bloquant */ }\nreturn [{ json: data }];"
+      },
+      "id": "5ae32f55-eb1f-44ca-a45a-73cbf756bc50",
+      "name": "Accuse de reception",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1984,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst today = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });\nconst devisNum = 'DEV-' + new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0') + '-' + Date.now().toString().slice(-4);\nconst systemPrompt = `Tu es un expert devis pour artisans BTP francais.\\nL artisan ${data.fromName} (tel: ${data.from}) decrit un chantier.\\nDATE: ${today} | NUMERO: ${devisNum}\\nREGLES: Prix marche francais 2024. TVA 10% renovation, 20% neuf, 0% si franchise.\\nReponds UNIQUEMENT en JSON brut sans markdown.\\nSTRUCTURE EXACTE:\\n{\"transcription\":\"[resume]\",\"devis\":{\"numero\":\"${devisNum}\",\"date\":\"${today}\",\"validite\":\"30 jours\",\"artisan\":{\"nom\":\"${data.fromName}\",\"telephone\":\"${data.from}\",\"regime_tva\":\"normal\"},\"client\":{\"nom\":\"A completer\",\"adresse\":\"A completer\",\"code_postal\":\"A completer\",\"ville\":\"A completer\",\"email\":\"A completer\"},\"description_chantier\":\"[description]\",\"lignes\":[{\"designation\":\"[prestation]\",\"quantite\":1,\"unite\":\"forfait\",\"prix_unitaire_ht\":0,\"total_ht\":0}],\"sous_total_ht\":0,\"tva_taux\":10,\"tva_montant\":0,\"total_ttc\":0,\"conditions\":\"Acompte 30% commande. Solde reception travaux. Valable 30 jours.\",\"notes\":\"\"}}`;\nlet userContent;\nif (data.hasAudio && data.base64Audio) {\n  userContent = [{ inlineData: { mimeType: data.mimeType || 'audio/ogg', data: data.base64Audio } }, { text: systemPrompt }];\n} else {\n  userContent = [{ text: systemPrompt + '\\n\\nDESCRIPTION ARTISAN:\\n' + (data.textContent || '') }];\n}\nreturn [{ json: { ...data, devisNum, geminiPayload: { contents: [{ parts: userContent }], generationConfig: { temperature: 0.2, maxOutputTokens: 4096 } } } }];"
+      },
+      "id": "6fe3d490-3a48-493a-b430-4dfddef52ae7",
+      "name": "Construire prompt Gemini",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2208,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=AQ.Ab8RN6JlgukR2IX9ktPrM4lSmU8v-pLMaWQMhWMov_G4xUUeRg",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.geminiPayload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "bd2b1ea9-afdd-4141-9a25-5bce4d21027c",
+      "name": "Gemini — Generer devis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2432,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst prevData = $('Construire prompt Gemini').first().json;\nlet rawText = '';\ntry { rawText = item.candidates[0].content.parts[0].text; }\ncatch (e) { return [{ json: { error: true, message: 'Gemini n a pas repondu correctement. Reessayez.' } }]; }\nlet cleanJson = rawText.replace(/```json\\s*/gi, '').replace(/```\\s*/g, '').trim();\nconst firstBrace = cleanJson.indexOf('{');\nconst lastBrace = cleanJson.lastIndexOf('}');\nif (firstBrace === -1) return [{ json: { error: true, message: 'Reponse invalide. Decrivez plus precisement le chantier.' } }];\ncleanJson = cleanJson.substring(firstBrace, lastBrace + 1);\nlet parsed;\ntry { parsed = JSON.parse(cleanJson); }\ncatch (e) { return [{ json: { error: true, message: 'Erreur format. Reessayez avec une description plus claire.' } }]; }\nconst devis = parsed.devis;\nconst transcription = parsed.transcription || '';\nlet sousTotal = 0;\nif (devis.lignes && Array.isArray(devis.lignes)) {\n  devis.lignes = devis.lignes.map(l => {\n    const qte = parseFloat(l.quantite) || 1;\n    const pu = parseFloat(l.prix_unitaire_ht) || 0;\n    const total = Math.round(qte * pu * 100) / 100;\n    sousTotal += total;\n    return { ...l, quantite: qte, prix_unitaire_ht: pu, total_ht: total };\n  });\n}\nsousTotal = Math.round(sousTotal * 100) / 100;\nconst estFranchise = devis.artisan?.regime_tva === 'franchise';\nconst tvaTaux = estFranchise ? 0 : (parseFloat(devis.tva_taux) || 10);\nconst tvaMontant = estFranchise ? 0 : Math.round(sousTotal * (tvaTaux / 100) * 100) / 100;\nconst totalTTC = Math.round((sousTotal + tvaMontant) * 100) / 100;\ndevis.sous_total_ht = sousTotal; devis.tva_taux = tvaTaux; devis.tva_montant = tvaMontant; devis.total_ttc = totalTTC;\nconst lignesHTML = (devis.lignes || []).map((l, i) => `<tr style=\"background:${i % 2 === 0 ? '#fff' : '#f9f9f9'}\"><td style=\"padding:10px 14px;border-bottom:1px solid #eee;font-size:14px;\">${l.designation}</td><td style=\"padding:10px 14px;border-bottom:1px solid #eee;text-align:center;font-size:14px;\">${l.quantite}</td><td style=\"padding:10px 14px;border-bottom:1px solid #eee;text-align:center;font-size:13px;color:#666;\">${l.unite}</td><td style=\"padding:10px 14px;border-bottom:1px solid #eee;text-align:right;font-size:14px;\">${parseFloat(l.prix_unitaire_ht).toFixed(2)} euro</td><td style=\"padding:10px 14px;border-bottom:1px solid #eee;text-align:right;font-size:14px;font-weight:600;\">${parseFloat(l.total_ht).toFixed(2)} euro</td></tr>`).join('');\nconst mentionTVA = estFranchise ? '<p style=\"font-size:12px;color:#e65100;margin:0 0 16px;\"><strong>TVA non applicable - article 293 B du CGI</strong></p>' : '';\nconst htmlDevis = `<!DOCTYPE html><html lang=\"fr\"><head><meta charset=\"UTF-8\"><title>Devis ${devis.numero}</title></head><body style=\"font-family:Arial,sans-serif;max-width:820px;margin:0 auto;padding:32px 24px;color:#1a1a1a;\"><table style=\"width:100%;margin-bottom:28px;\"><tr><td><h1 style=\"margin:0;font-size:36px;font-weight:700;\">DEVIS</h1><p style=\"margin:4px 0 0;font-size:13px;color:#888;\">KC Peak IA</p></td><td style=\"text-align:right;\"><p style=\"margin:0;font-size:17px;font-weight:600;\">N deg ${devis.numero}</p><p style=\"margin:4px 0;font-size:13px;color:#555;\">Date : <strong>${devis.date}</strong></p><p style=\"margin:4px 0;font-size:13px;color:#555;\">Valable 30 jours</p></td></tr></table><table style=\"width:100%;margin-bottom:24px;\"><tr><td style=\"width:48%;background:#f5f5f5;padding:16px;border-radius:8px;\"><p style=\"margin:0 0 6px;font-size:10px;font-weight:700;color:#888;text-transform:uppercase;\">Artisan</p><p style=\"margin:0 0 4px;font-size:15px;font-weight:700;\">${devis.artisan.nom}</p><p style=\"margin:0;font-size:13px;color:#555;\">Tel : ${devis.artisan.telephone}</p></td><td style=\"width:4%;\"></td><td style=\"width:48%;background:#f5f5f5;padding:16px;border-radius:8px;\"><p style=\"margin:0 0 6px;font-size:10px;font-weight:700;color:#888;text-transform:uppercase;\">Client</p><p style=\"margin:0 0 4px;font-size:15px;font-weight:700;\">${devis.client.nom}</p><p style=\"margin:2px 0;font-size:13px;color:#555;\">${devis.client.adresse}, ${devis.client.code_postal} ${devis.client.ville}</p>${devis.client.email !== 'A completer' ? `<p style=\"margin:2px 0;font-size:13px;color:#555;\">${devis.client.email}</p>` : ''}</td></tr></table><div style=\"background:#fff8e1;border-left:4px solid #ffc107;padding:13px;border-radius:4px;margin-bottom:16px;\"><strong>Objet :</strong> ${devis.description_chantier}</div>${mentionTVA}<table style=\"width:100%;border-collapse:collapse;margin-bottom:24px;\"><thead><tr style=\"background:#1a1a1a;color:#fff;\"><th style=\"padding:12px 14px;text-align:left;font-size:13px;\">Designation</th><th style=\"padding:12px 14px;text-align:center;font-size:13px;\">Qte</th><th style=\"padding:12px 14px;text-align:center;font-size:13px;\">Unite</th><th style=\"padding:12px 14px;text-align:right;font-size:13px;\">P.U. HT</th><th style=\"padding:12px 14px;text-align:right;font-size:13px;\">Total HT</th></tr></thead><tbody>${lignesHTML}</tbody></table><table style=\"margin-left:auto;min-width:280px;border-collapse:collapse;margin-bottom:28px;\"><tr><td style=\"padding:8px 16px;font-size:14px;color:#555;\">Sous-total HT</td><td style=\"padding:8px 16px;font-size:14px;font-weight:600;text-align:right;\">${sousTotal.toFixed(2)} euro</td></tr><tr><td style=\"padding:8px 16px;font-size:14px;color:#555;\">TVA (${tvaTaux}%)</td><td style=\"padding:8px 16px;font-size:14px;text-align:right;\">${tvaMontant.toFixed(2)} euro</td></tr><tr style=\"background:#1a1a1a;color:#fff;\"><td style=\"padding:13px 16px;font-size:16px;font-weight:700;\">TOTAL TTC</td><td style=\"padding:13px 16px;font-size:20px;font-weight:700;text-align:right;\">${totalTTC.toFixed(2)} euro</td></tr></table><div style=\"background:#f5f5f5;padding:16px;border-radius:8px;margin-bottom:20px;\"><p style=\"margin:0 0 6px;font-size:14px;font-weight:600;\">Conditions</p><p style=\"margin:0;font-size:13px;color:#555;\">${devis.conditions}</p></div><div style=\"border:2px dashed #ddd;padding:20px;border-radius:8px;text-align:center;\"><p style=\"margin:0 0 8px;font-size:13px;color:#666;\">Bon pour accord - Date : ___________</p><p style=\"margin:0;font-size:13px;color:#666;\">Signature : _________________________</p></div><p style=\"text-align:center;color:#ccc;font-size:11px;margin-top:24px;\">Devis genere par KC Peak IA - ${devis.date} - Conforme RGPD</p></body></html>`;\nreturn [{ json: { ...prevData, transcription, devis, htmlDevis, estFranchise, error: false } }];"
+      },
+      "id": "7c695803-f58d-4a14-b549-2786ca5c83e4",
+      "name": "Parser et formater devis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "check-error",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEqual"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "818e45d2-673d-4e9a-8e50-dca9d6a9e122",
+      "name": "Devis genere ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2864,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.devis.client.email !== 'A completer' ? $json.devis.client.email : 'kckingcode@gmail.com' }}",
+        "subject": "=Votre devis N deg {{ $json.devis.numero }} — {{ $json.devis.description_chantier.substring(0, 60) }}",
+        "message": "={{ $json.htmlDevis }}",
+        "options": {
+          "ccList": "kckingcode@gmail.com"
+        }
+      },
+      "id": "56492008-8692-470b-ba4b-d204737dc240",
+      "name": "Envoyer devis par email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        3088,
+        608
+      ],
+      "webhookId": "401e17b1-de7c-41f4-82d2-56d0ec54419d",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "ZfBfaDUnJLc7yUL2",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1wEAcUAEcamX0WZCxWI82EsZxF6L8zS_2of2VWY7QdoE/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Page",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "e490729c-0b0f-47ce-a677-4c747e2eef3e",
+      "name": "Sauvegarder dans Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        3088,
+        784
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "1jOgrsv3jZkAs2lx",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/{{ $('Parser message WhatsApp').first().json.phoneNumberId }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer EAATKvY1rPQIBRb20JEEX44wMcxo7GvPOrlDnjtrOPsxSZAGsiZBHpstAM6ZBWpGCI2AV4YycWZCDf8jFRdC9hLPBVQKRCIiichzKohZAZBWsUiaFXVQxjs9SMxwkncqwSVQItkA7joyYTZC5TqN6XTVVLludiu6n4qZCZAAE7HkZBr2nGMdF0wxTsRwc6v4DPzv9QUCQZDZD"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"messaging_product\":\"whatsapp\",\"to\":\"{{ $('Parser message WhatsApp').first().json.from }}\",\"type\":\"text\",\"text\":{\"body\":\"Devis N deg {{ $json.devis.numero }} genere !\\n\\nMontant TTC : {{ $json.devis.total_ttc }} euro\\nChantier : {{ $json.devis.description_chantier.substring(0, 80) }}\\nEnvoye a : {{ $json.devis.client.email }}\\n\\nValable 30 jours.\"}}",
+        "options": {}
+      },
+      "id": "15f6287f-c427-417d-ba68-32dd0e595d45",
+      "name": "Confirmation WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3312,
+        704
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ZFlTLqwH6xyFnqEF",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/{{ $('Parser message WhatsApp').first().json.phoneNumberId }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer EAATKvY1rPQIBRb20JEEX44wMcxo7GvPOrlDnjtrOPsxSZAGsiZBHpstAM6ZBWpGCI2AV4YycWZCDf8jFRdC9hLPBVQKRCIiichzKohZAZBWsUiaFXVQxjs9SMxwkncqwSVQItkA7joyYTZC5TqN6XTVVLludiu6n4qZCZAAE7HkZBr2nGMdF0wxTsRwc6v4DPzv9QUCQZDZD"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"messaging_product\":\"whatsapp\",\"to\":\"{{ $('Parser message WhatsApp').first().json.from }}\",\"type\":\"text\",\"text\":{\"body\":\"Erreur lors de la generation du devis.\\n{{ $json.message || 'Probleme technique temporaire.' }}\\n\\nAstuce : Decrivez votre chantier de facon detaillee et reessayez !\"}}",
+        "options": {}
+      },
+      "id": "8420cd68-79c0-4e48-869c-86cd773a5932",
+      "name": "Erreur WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3184,
+        1040
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ZFlTLqwH6xyFnqEF",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "minutes"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3520,
+        704
+      ],
+      "id": "23ad4a15-f281-4cba-8ad9-d59a0d1d1e65",
+      "name": "Wait",
+      "webhookId": "6c407b2c-dda7-43a7-bf1d-96a5a26c738f"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/{{ $('Parser message WhatsApp').first().json.phoneNumberId }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "Message de relance",
+              "value": "={   \"messaging_product\": \"whatsapp\",   \"to\": \"{{ $node[\\\"Parser message WhatsApp\\\"].json[\\\"from\\\"] }}\",   \"type\": \"text\",   \"text\": {     \"body\": \"Bonjour ! C'est encore l'assistant de KC Peak. Avez-vous eu le temps de jeter un œil au devis ? L'artisan peut bloquer un créneau pour vous si vous validez maintenant.\"   } }"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3728,
+        704
+      ],
+      "id": "c4103bf6-fe98-4648-8bae-215bfa67a147",
+      "name": "HTTP Request",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ZFlTLqwH6xyFnqEF",
+          "name": "Header Auth account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook — Verification Meta": {
+      "main": [
+        [
+          {
+            "node": "Verifier token Meta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verifier token Meta": {
+      "main": [
+        [
+          {
+            "node": "Repondre verification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook — Message WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Repondre WhatsApp 200",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Parser message WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parser message WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Message valide ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message valide ?": {
+      "main": [
+        [
+          {
+            "node": "Preparer aide",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Message audio ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparer aide": {
+      "main": [
+        [
+          {
+            "node": "Envoyer aide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message audio ?": {
+      "main": [
+        [
+          {
+            "node": "Recuperer URL audio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparer texte",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recuperer URL audio": {
+      "main": [
+        [
+          {
+            "node": "Telecharger audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telecharger audio": {
+      "main": [
+        [
+          {
+            "node": "Preparer audio base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparer audio base64": {
+      "main": [
+        [
+          {
+            "node": "Fusionner entrees",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparer texte": {
+      "main": [
+        [
+          {
+            "node": "Fusionner entrees",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fusionner entrees": {
+      "main": [
+        [
+          {
+            "node": "Accuse de reception",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Accuse de reception": {
+      "main": [
+        [
+          {
+            "node": "Construire prompt Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construire prompt Gemini": {
+      "main": [
+        [
+          {
+            "node": "Gemini — Generer devis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini — Generer devis": {
+      "main": [
+        [
+          {
+            "node": "Parser et formater devis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parser et formater devis": {
+      "main": [
+        [
+          {
+            "node": "Devis genere ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Devis genere ?": {
+      "main": [
+        [
+          {
+            "node": "Erreur WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Envoyer devis par email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Sauvegarder dans Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Envoyer devis par email": {
+      "main": [
+        [
+          {
+            "node": "Confirmation WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sauvegarder dans Sheets": {
+      "main": [
+        [
+          {
+            "node": "Confirmation WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirmation WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "179b79f8-92b0-4ee3-a9b4-6541fc612eb6",
+  "meta": {
+    "instanceId": "a3252b898511f611f7193f3fda8405dad7c55f5dd0c8e979a5516d3d93644bf4"
+  },
+  "id": "bNJLBmUdGJdQhkUJ",
+  "tags": [
+    {
+      "updatedAt": "2026-03-29T15:31:50.801Z",
+      "createdAt": "2026-03-29T15:31:50.801Z",
+      "id": "0mabExPFlPUwspuW",
+      "name": "KC Peak"
+    },
+    {
+      "updatedAt": "2026-04-08T11:06:56.549Z",
+      "createdAt": "2026-04-08T11:06:56.549Z",
+      "id": "6KKJkes4muWA9SkE",
+      "name": "Devis"
+    },
+    {
+      "updatedAt": "2026-04-08T11:06:56.544Z",
+      "createdAt": "2026-04-08T11:06:56.544Z",
+      "id": "83rH7Hx0uzhIWkzV",
+      "name": "BTP"
+    },
+    {
+      "updatedAt": "2026-04-12T11:40:12.384Z",
+      "createdAt": "2026-04-12T11:40:12.384Z",
+      "id": "bZ0vMVuQ792WJE3h",
+      "name": "v2"
+    }
+  ]
+}
